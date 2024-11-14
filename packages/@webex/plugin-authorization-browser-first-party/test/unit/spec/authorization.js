@@ -443,6 +443,99 @@ describe('plugin-authorization-browser-first-party', () => {
       });
     });
 
+    describe('#getQRCodeLoginDetails()', () => {
+      it('should send correct request parameters to the API', () => {
+        const testClientId = 'test_client_id';
+        const testScope = 'test-scope';
+
+        const webex = makeWebex('http://example.com', undefined, undefined, {
+          credentials: {
+            client_id: testClientId,
+            scope: testScope,
+          }
+        });
+
+        webex.authorization.getQRCodeLoginDetails();
+
+        assert.calledOnce(webex.request);
+
+        const request = webex.request.getCall(0);
+
+        assert.equal(request.args[0].form.client_id, testClientId);
+        assert.equal(request.args[0].form.scope, testScope);
+      });
+    });
+
+    describe('#startQRCodePolling()', () => {
+      it('requires a deviceCode', () => {
+        const webex = makeWebex('http://example.com');
+        assert.isRejected(webex.authorization.startQRCodePolling({}), /A deviceCode is required/);
+      });
+        
+      it('should send correct request parameters to the API', async () => {
+        const testClientId = 'test_client_id';
+        const testDeviceCode = 'test-device-code';
+        const testInterval = 2;
+        const testExpiresIn = 300;
+
+        const options = {
+          device_code: testDeviceCode,
+          interval: testInterval,
+          expires_in: testExpiresIn,
+        };
+
+        const webex = makeWebex('http://example.com', undefined, undefined, {
+          credentials: {
+            client_id: testClientId,
+          }
+        });
+
+        sinon.spy(webex.authorization, 'cancelQRCodePolling');
+
+        await webex.authorization.startQRCodePolling(options);
+
+        assert.calledOnce(webex.request);
+
+        const request = webex.request.getCall(0);
+
+        assert.equal(request.args[0].form.client_id, testClientId);
+        assert.equal(request.args[0].form.device_code, testDeviceCode);
+        assert.equal(request.args[0].form.grant_type, 'urn:ietf:params:oauth:grant-type:device_code');
+
+        assert.calledOnce(webex.authorization.cancelQRCodePolling);
+      });
+    });
+
+    describe('#cancelQRCodePolling()', () => {
+      it('reject when reaches the limit of timeout', () => {
+        const fakeIntervalId = 1;
+        sinon.stub(global, 'setInterval').returns(fakeIntervalId);
+        sinon.stub(global, 'clearInterval');
+
+        const options = {
+          device_code: 'test_device_code',
+          interval: 2,
+          expires_in: 300,
+        }
+
+        const webex = makeWebex('http://example.com');
+    
+        webex.authorization.startQRCodePolling(options);
+    
+        expect(webex.authorization.pollingRequest).toEqual(fakeIntervalId);
+    
+        webex.authorization.cancelQRCodePolling();
+    
+        sinon.assert.calledOnce(global.clearInterval);
+        sinon.assert.calledWith(global.clearInterval, fakeIntervalId);
+    
+        expect(webex.authorization.pollingRequest).toBe(null);
+
+        global.setInterval.restore();
+        global.clearInterval.restore();
+      });
+    });
+
     describe('#_generateCodeChallenge', () => {
       const expectedCodeChallenge = 'code challenge';
       // eslint-disable-next-line no-underscore-dangle

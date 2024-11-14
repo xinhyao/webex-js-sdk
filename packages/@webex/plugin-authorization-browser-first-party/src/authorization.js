@@ -66,6 +66,8 @@ const Authorization = WebexPlugin.extend({
 
   namespace: 'Credentials',
 
+  pollingRequest: null,
+
   /**
    * Initializer
    * @instance
@@ -238,6 +240,128 @@ const Authorization = WebexPlugin.extend({
 
         return Promise.reject(new ErrorConstructor(res._res || res));
       });
+  },
+
+  /**
+   * Get an OAuth Login URL for QRCode. Generate QR code based on the returned URL.
+   * @instance
+   * @memberof Credentials
+   * @returns {Object}
+   */
+  getQRCodeLoginDetails() {
+    return this.webex
+      .request({
+        method: 'POST',
+        service: 'oauth-helper',
+        resource: '/actions/device/authorize',
+        form: {
+          client_id: this.config.client_id,
+          scope: this.config.scope,
+        },
+        auth: {
+          user: this.config.client_id,
+          pass: this.config.client_secret,
+          sendImmediately: true,
+        },
+      })
+      .then((res) => {
+        return res.body;
+      })
+      .catch((res) => {
+        if (res.statusCode !== 400) {
+          return Promise.reject(res);
+        }
+
+        const ErrorConstructor = grantErrors.select(res.body.error);
+
+        return Promise.reject(new ErrorConstructor(res._res || res));
+      });
+  },
+
+  /**
+   * Polling the server to check whether the user has completed authorization
+   * @instance
+   * @memberof Credentials
+   * @param {Object} options
+   * @returns {Object}
+   */
+    startQRCodePolling(options = {}) {
+      if (!options.device_code) {
+        return Promise.reject(new Error('A deviceCode is required'));
+      }
+  
+      if (this.pollingRequest) {
+        return Promise.reject(new Error('There is already a polling request'));
+      }
+  
+      const {device_code: deviceCode, interval = 2, expires_in: expiresIn = 300} = options;
+  
+      let attempts = 0;
+      const maxAttempts = expiresIn / interval;
+  
+      return new Promise((resolve, reject) => {
+        this.pollingRequest = setInterval(() => {
+          attempts += 1;
+  
+          this.webex
+            .request({
+              method: 'POST',
+              service: 'oauth-helper',
+              resource: '/actions/device/token',
+              form: {
+                grant_type: 'urn:ietf:params:oauth:grant-type:device_code',
+                device_code: deviceCode,
+                client_id: this.config.client_id,
+              },
+              auth: {
+                user: this.config.client_id,
+                pass: this.config.client_secret,
+                sendImmediately: true,
+              },
+            })
+            .then((res) => {
+              this.cancelQRCodePolling();
+  
+              resolve(res.body);
+            })
+            .catch((res) => {
+              if (attempts >= maxAttempts) {
+                this.cancelQRCodePolling();
+                reject(
+                  new Error('The current page has timed out, please refresh the page and try again.')
+                );
+              }
+              // if the statusCode is 428 which means that the authorization request is still pending
+              // as the end user hasn't yet completed the user-interaction steps. So keep polling.
+              if (res.statusCode === 428) {
+                return;
+              }
+  
+              this.cancelQRCodePolling();
+  
+              if (res.statusCode !== 400) {
+                reject(res);
+              }
+  
+              const ErrorConstructor = grantErrors.select(res.body.error);
+  
+              reject(new ErrorConstructor(res._res || res));
+            });
+        }, interval * 1000);
+      });
+    },
+
+  /**
+   * cancel polling request
+   * @instance
+   * @memberof Credentials
+   * @returns {void}
+   */
+  cancelQRCodePolling() {
+    if (this.pollingRequest) {
+      clearInterval(this.pollingRequest);
+      this.pollingRequest = null;
+    }
   },
 
   /**
