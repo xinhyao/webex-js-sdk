@@ -587,12 +587,36 @@ describe('plugin-authorization-browser-first-party', () => {
         clock.tick(10000);
         
         await assert.isRejected(promise, /Authorization timed out/);
-        assert.calledTwice(webex.authorization.cancelQRCodePolling);
+        assert.calledOnce(webex.authorization.cancelQRCodePolling);
         clock.restore();
       });
     });
 
     describe('#cancelQRCodePolling()', () => {
+      it('should stop polling after cancellation', async () => {
+         const clock = sinon.useFakeTimers();
+         const webex = makeWebex('http://example.com');
+         const options = {
+           device_code: 'test_code',
+           interval: 2,
+           expires_in: 300
+         };
+
+         webex.request.rejects({statusCode: 428, body: {error: 'authorization_pending'}});
+
+         webex.authorization.startQRCodePolling(options);
+         // First poll
+         clock.tick(2000);
+         assert.calledOnce(webex.request);
+
+         webex.authorization.cancelQRCodePolling();
+         // Wait for next interval
+         clock.tick(2000);
+         
+         // Verify no additional requests were made
+         assert.calledOnce(webex.request);
+         clock.restore();
+       });
       it('should clear interval and reset polling request', () => {
         const clock = sinon.useFakeTimers();
         const webex = makeWebex('http://example.com');

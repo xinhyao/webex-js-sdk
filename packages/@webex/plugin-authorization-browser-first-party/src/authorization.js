@@ -337,6 +337,7 @@ const Authorization = WebexPlugin.extend({
             if (attempts >= maxAttempts) {
               this.cancelQRCodePolling();
               reject(new Error('Authorization timed out'));
+              return;
             }
             // if the statusCode is 428 which means that the authorization request is still pending
             // as the end user hasn't yet completed the user-interaction steps. So keep polling.
