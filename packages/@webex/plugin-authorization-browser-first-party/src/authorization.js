@@ -66,6 +66,14 @@ const Authorization = WebexPlugin.extend({
 
   namespace: 'Credentials',
 
+
+  /**
+   * Stores the interval ID for QR code polling
+   * @instance
+   * @memberof AuthorizationBrowserFirstParty
+   * @type {?number}
+   * @private
+   */
   pollingRequest: null,
 
   /**
@@ -245,8 +253,9 @@ const Authorization = WebexPlugin.extend({
   /**
    * Get an OAuth Login URL for QRCode. Generate QR code based on the returned URL.
    * @instance
-   * @memberof Credentials
-   * @returns {Object}
+   * @memberof AuthorizationBrowserFirstParty
+   * @throws {Error} When the request fails
+   * @returns {Promise<{verification_uri_complete: string, verification_uri: string, user_code: string, device_code: string, interval: number, expires_in: number}>}
    */
   getQRCodeLoginDetails() {
     return this.webex
@@ -281,9 +290,10 @@ const Authorization = WebexPlugin.extend({
   /**
    * Polling the server to check whether the user has completed authorization
    * @instance
-   * @memberof Credentials
+   * @memberof AuthorizationBrowserFirstParty
    * @param {Object} options
-   * @returns {Object}
+   * @throws {Error} When the request fails
+   * @returns {Promise}
    */
   startQRCodePolling(options = {}) {
     if (!options.device_code) {
@@ -321,15 +331,12 @@ const Authorization = WebexPlugin.extend({
           })
           .then((res) => {
             this.cancelQRCodePolling();
-
             resolve(res.body);
           })
           .catch((res) => {
             if (attempts >= maxAttempts) {
               this.cancelQRCodePolling();
-              reject(
-                new Error('The current page has timed out, please refresh the page and try again.')
-              );
+              reject(new Error('Authorization timed out'));
             }
             // if the statusCode is 428 which means that the authorization request is still pending
             // as the end user hasn't yet completed the user-interaction steps. So keep polling.
@@ -354,7 +361,7 @@ const Authorization = WebexPlugin.extend({
   /**
    * cancel polling request
    * @instance
-   * @memberof Credentials
+   * @memberof AuthorizationBrowserFirstParty
    * @returns {void}
    */
   cancelQRCodePolling() {

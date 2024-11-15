@@ -558,14 +558,16 @@ describe('plugin-authorization-browser-first-party', () => {
           expires_in: 300
         };
         
-        webex.request.onFirstCall().rejects({statusCode: 400, body: {error: 'slow_down'}});
-        webex.request.onSecondCall().resolves({statusCode: 200, body: {access_token: 'token'}});
-    
+        webex.request.onFirstCall().rejects({statusCode: 428, body: {error: 'authorization_pending'}});
+        webex.request.onSecondCall().rejects({statusCode: 400, body: {error: 'slow_down'}});
+        sinon.spy(webex.authorization, 'cancelQRCodePolling');
+
         const promise = webex.authorization.startQRCodePolling(options);
         clock.tick(4000);
         await promise;
     
         assert.calledTwice(webex.request);
+        assert.calledOnce(webex.authorization.cancelQRCodePolling);
         clock.restore();
       });
 
@@ -579,12 +581,13 @@ describe('plugin-authorization-browser-first-party', () => {
         };
     
         webex.request.rejects({statusCode: 428, body: {error: 'authorization_pending'}});
-    
+        sinon.spy(webex.authorization, 'cancelQRCodePolling');
+
         const promise = webex.authorization.startQRCodePolling(options);
         clock.tick(10000);
-        await promise;
-    
-        assert.isRejected(promise, /The current page has timed out, please refresh the page and try again./);
+        
+        await assert.isRejected(promise, /Authorization timed out/);
+        assert.calledTwice(webex.authorization.cancelQRCodePolling);
         clock.restore();
       });
     });
