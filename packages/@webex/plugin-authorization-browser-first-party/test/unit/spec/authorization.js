@@ -592,6 +592,26 @@ describe('plugin-authorization-browser-first-party', () => {
         assert.calledOnce(webex.authorization.cancelQRCodePolling);
         clock.restore();
       });
+
+      it('should prevent concurrent polling attempts', async () => {
+        const clock = sinon.useFakeTimers();
+        const webex = makeWebex('http://example.com');
+        const options = {
+          device_code: 'test_code',
+          interval: 2,
+          expires_in: 300
+        };
+    
+        webex.request.rejects({statusCode: 428, body: {message: 'authorization_pending'}});
+
+        // Start first polling request
+        webex.authorization.startQRCodePolling(options);
+        // Attempt second polling request
+        const secondPromise = webex.authorization.startQRCodePolling(options);
+        
+        await assert.isRejected(secondPromise, /There is already a polling request/);
+        clock.restore();
+      });
     });
 
     describe('#cancelQRCodePolling()', () => {
