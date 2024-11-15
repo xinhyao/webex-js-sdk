@@ -464,6 +464,21 @@ describe('plugin-authorization-browser-first-party', () => {
         assert.equal(request.args[0].form.client_id, testClientId);
         assert.equal(request.args[0].form.scope, testScope);
       });
+
+      it('should use POST method and correct endpoint', () => {
+        const webex = makeWebex('http://example.com');
+        webex.authorization.getQRCodeLoginDetails();
+        const request = webex.request.getCall(0);
+        assert.equal(request.args[0].method, 'POST');
+        assert.equal(request.args[0].service, 'oauth-helper');
+        assert.equal(request.args[0].resource, '/actions/device/authorize');
+      });
+    
+      it('should handle API error response', () => {
+        const webex = makeWebex('http://example.com');
+        webex.request.rejects(new Error('API Error'));
+        assert.isRejected(webex.authorization.getQRCodeLoginDetails(), /API Error/);
+      });
     });
 
     describe('#startQRCodePolling()', () => {
@@ -473,6 +488,7 @@ describe('plugin-authorization-browser-first-party', () => {
       });
         
       it('should send correct request parameters to the API', async () => {
+        const clock = sinon.useFakeTimers();
         const testClientId = 'test_client_id';
         const testDeviceCode = 'test-device-code';
         const testInterval = 2;
@@ -490,9 +506,13 @@ describe('plugin-authorization-browser-first-party', () => {
           }
         });
 
+        webex.request.onFirstCall().resolves({statusCode: 200, body: {access_token: 'token'}});
+
         sinon.spy(webex.authorization, 'cancelQRCodePolling');
 
-        await webex.authorization.startQRCodePolling(options);
+        const promise = webex.authorization.startQRCodePolling(options);
+        clock.tick(2000);
+        await promise;
 
         assert.calledOnce(webex.request);
 
@@ -503,37 +523,100 @@ describe('plugin-authorization-browser-first-party', () => {
         assert.equal(request.args[0].form.grant_type, 'urn:ietf:params:oauth:grant-type:device_code');
 
         assert.calledOnce(webex.authorization.cancelQRCodePolling);
+
+        clock.restore();
+      });
+
+      it('should respect polling interval', async () => {
+        const clock = sinon.useFakeTimers();
+        const webex = makeWebex('http://example.com');
+        const options = {
+          device_code: 'test_code',
+          interval: 2,
+          expires_in: 300
+        };
+    
+        webex.request.onFirstCall().rejects({statusCode: 428, body: {error: 'authorization_pending'}});
+        webex.request.onSecondCall().resolves({statusCode: 200, body: {access_token: 'token'}});
+        sinon.spy(webex.authorization, 'cancelQRCodePolling');
+
+        const promise = webex.authorization.startQRCodePolling(options);
+        clock.tick(4000);
+        await promise;
+    
+        assert.calledTwice(webex.request);
+        assert.calledOnce(webex.authorization.cancelQRCodePolling);
+        clock.restore();
+      });
+
+      it('should handle slow_down response', async () => {
+        const clock = sinon.useFakeTimers();
+        const webex = makeWebex('http://example.com');
+        const options = {
+          device_code: 'test_code',
+          interval: 2,
+          expires_in: 300
+        };
+        
+        webex.request.onFirstCall().rejects({statusCode: 400, body: {error: 'slow_down'}});
+        webex.request.onSecondCall().resolves({statusCode: 200, body: {access_token: 'token'}});
+    
+        const promise = webex.authorization.startQRCodePolling(options);
+        clock.tick(4000);
+        await promise;
+    
+        assert.calledTwice(webex.request);
+        clock.restore();
+      });
+
+      it('should timeout after expires_in seconds', async () => {
+        const clock = sinon.useFakeTimers();
+        const webex = makeWebex('http://example.com');
+        const options = {
+          device_code: 'test_code',
+          interval: 5,
+          expires_in: 10
+        };
+    
+        webex.request.rejects({statusCode: 428, body: {error: 'authorization_pending'}});
+    
+        const promise = webex.authorization.startQRCodePolling(options);
+        clock.tick(10000);
+        await promise;
+    
+        assert.isRejected(promise, /The current page has timed out, please refresh the page and try again./);
+        clock.restore();
       });
     });
 
     describe('#cancelQRCodePolling()', () => {
-      it('reject when reaches the limit of timeout', () => {
-        const fakeIntervalId = 1;
-        sinon.stub(global, 'setInterval').returns(fakeIntervalId);
-        sinon.stub(global, 'clearInterval');
-
+      it('should clear interval and reset polling request', () => {
+        const clock = sinon.useFakeTimers();
+        const webex = makeWebex('http://example.com');
+    
         const options = {
           device_code: 'test_device_code',
           interval: 2,
           expires_in: 300,
-        }
+        };
 
-        const webex = makeWebex('http://example.com');
-    
         webex.authorization.startQRCodePolling(options);
-    
-        expect(webex.authorization.pollingRequest).toEqual(fakeIntervalId);
-    
+        assert.isDefined(webex.authorization.pollingRequest);
+         
         webex.authorization.cancelQRCodePolling();
-    
-        sinon.assert.calledOnce(global.clearInterval);
-        sinon.assert.calledWith(global.clearInterval, fakeIntervalId);
-    
-        expect(webex.authorization.pollingRequest).toBe(null);
-
-        global.setInterval.restore();
-        global.clearInterval.restore();
+        assert.isNull(webex.authorization.pollingRequest);
+         
+        clock.restore();
       });
+         
+      it('should handle cancellation when no polling is in progress', () => {
+        const webex = makeWebex('http://example.com');
+        assert.isNull(webex.authorization.pollingRequest);
+         
+        webex.authorization.cancelQRCodePolling();
+        assert.isNull(webex.authorization.pollingRequest);
+      });
+        
     });
 
     describe('#_generateCodeChallenge', () => {
