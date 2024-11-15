@@ -558,16 +558,17 @@ describe('plugin-authorization-browser-first-party', () => {
           expires_in: 300
         };
         
-        webex.request.onFirstCall().rejects({statusCode: 428, body: {error: 'authorization_pending'}});
-        webex.request.onSecondCall().rejects({statusCode: 400, body: {error: 'slow_down'}});
+        webex.request.onFirstCall().rejects({statusCode: 428, body: {message: 'authorization_pending'}});
+        webex.request.onSecondCall().rejects({statusCode: 400, body: {message: 'slow_down'}});
+        webex.request.onThirdCall().resolves({statusCode: 200, body: {access_token: 'token'}});
         sinon.spy(webex.authorization, 'cancelQRCodePolling');
 
         const promise = webex.authorization.startQRCodePolling(options);
-        clock.tick(4000);
+        clock.tick(6000);
         await promise;
     
-        assert.calledTwice(webex.request);
-        assert.calledOnce(webex.authorization.cancelQRCodePolling);
+        assert.calledThrice(webex.request);
+        assert.calledTwice(webex.authorization.cancelQRCodePolling);
         clock.restore();
       });
 
@@ -580,13 +581,14 @@ describe('plugin-authorization-browser-first-party', () => {
           expires_in: 10
         };
     
-        webex.request.rejects({statusCode: 428, body: {error: 'authorization_pending'}});
+        webex.request.rejects({statusCode: 428, body: {message: 'authorization_pending'}});
         sinon.spy(webex.authorization, 'cancelQRCodePolling');
 
         const promise = webex.authorization.startQRCodePolling(options);
         clock.tick(10000);
         
         await assert.isRejected(promise, /Authorization timed out/);
+        assert.calledTwice(webex.request);
         assert.calledOnce(webex.authorization.cancelQRCodePolling);
         clock.restore();
       });
@@ -602,7 +604,7 @@ describe('plugin-authorization-browser-first-party', () => {
            expires_in: 300
          };
 
-         webex.request.rejects({statusCode: 428, body: {error: 'authorization_pending'}});
+         webex.request.rejects({statusCode: 428, body: {message: 'authorization_pending'}});
 
          webex.authorization.startQRCodePolling(options);
          // First poll

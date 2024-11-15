@@ -313,6 +313,7 @@ const Authorization = WebexPlugin.extend({
       this.pollingRequest = setInterval(() => {
         attempts += 1;
 
+        const currentAttempts = attempts;
         this.webex
           .request({
             method: 'POST',
@@ -334,7 +335,7 @@ const Authorization = WebexPlugin.extend({
             resolve(res.body);
           })
           .catch((res) => {
-            if (attempts >= maxAttempts) {
+            if (currentAttempts >= maxAttempts) {
               this.cancelQRCodePolling();
               reject(new Error('Authorization timed out'));
               return;
@@ -343,6 +344,11 @@ const Authorization = WebexPlugin.extend({
             // as the end user hasn't yet completed the user-interaction steps. So keep polling.
             if (res.statusCode === 428) {
               return;
+            }
+
+            if (res.statusCode === 400 && res.body.message === 'slow_down') {
+              this.cancelQRCodePolling();
+              return this.startQRCodePolling({...options, interval: interval + 1});
             }
 
             this.cancelQRCodePolling();
