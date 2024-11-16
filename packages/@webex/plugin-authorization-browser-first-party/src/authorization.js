@@ -6,6 +6,7 @@
 
 import querystring from 'querystring';
 import url from 'url';
+import {EventEmitter} from 'events';
 
 import {base64, oneFlight, whileInFlight} from '@webex/common';
 import {grantErrors, WebexPlugin} from '@webex/webex-core';
@@ -75,6 +76,8 @@ const Authorization = WebexPlugin.extend({
    * @private
    */
   pollingRequest: null,
+
+  eventEmitter: new EventEmitter(),
 
   /**
    * Initializer
@@ -257,7 +260,7 @@ const Authorization = WebexPlugin.extend({
    * @throws {Error} When the request fails
    * @returns {Promise<{verification_uri_complete: string, verification_uri: string, user_code: string, device_code: string, interval: number, expires_in: number}>}
    */
-  getQRCodeLoginDetails() {
+  initQRCodeLogin() {
     return this.webex
       .request({
         method: 'POST',
@@ -274,16 +277,21 @@ const Authorization = WebexPlugin.extend({
         },
       })
       .then((res) => {
+        const {user_code, verification_uri, verification_uri_complete} = res.body;
+        this.eventEmitter.emit('qrcode-login', {
+          eventType: 'user-code',
+          userData: {
+            user_code,
+            verification_uri,
+            verification_uri_complete,
+          }
+        });
+        // if device authorization success, then start to poll server to check whether the user has completed authorization
+        this.startQRCodePolling(res.body);
         return res.body;
       })
       .catch((res) => {
-        if (res.statusCode !== 400) {
-          return Promise.reject(res);
-        }
-
-        const ErrorConstructor = grantErrors.select(res.body.error);
-
-        return Promise.reject(new ErrorConstructor(res._res || res));
+        return Promise.reject(res);
       });
   },
 
@@ -331,35 +339,40 @@ const Authorization = WebexPlugin.extend({
             },
           })
           .then((res) => {
+            this.eventEmitter.emit('qrcode-login', {
+              eventType: 'authorization_success',
+              authorized: true,
+            });
             this.cancelQRCodePolling();
             resolve(res.body);
           })
           .catch((res) => {
             if (currentAttempts >= maxAttempts) {
-              this.cancelQRCodePolling();
               reject(new Error('Authorization timed out'));
+              this.eventEmitter.emit('qrcode-login', {
+                eventType: 'authorization_failed',
+                error: 'Authorization timed out',
+              });
+              this.cancelQRCodePolling();
               return;
             }
             // if the statusCode is 428 which means that the authorization request is still pending
             // as the end user hasn't yet completed the user-interaction steps. So keep polling.
             if (res.statusCode === 428) {
+              this.eventEmitter.emit('qrcode-login', {
+                eventType: 'authorization_pending',
+                error: res.body
+              });
               return;
-            }
-
-            if (res.statusCode === 400 && res.body.message === 'slow_down') {
-              this.cancelQRCodePolling();
-              return this.startQRCodePolling({...options, interval: interval + 1});
             }
 
             this.cancelQRCodePolling();
 
-            if (res.statusCode !== 400) {
-              reject(res);
-            }
-
-            const ErrorConstructor = grantErrors.select(res.body.error);
-
-            reject(new ErrorConstructor(res._res || res));
+            reject(res);
+            this.eventEmitter.emit('qrcode-login', {
+              eventType: 'authorization_failed',
+              error: res.body
+            });
           });
       }, interval * 1000);
     });
@@ -374,6 +387,9 @@ const Authorization = WebexPlugin.extend({
   cancelQRCodePolling() {
     if (this.pollingRequest) {
       clearInterval(this.pollingRequest);
+      this.eventEmitter.emit('qrcode-login', {
+        eventType: 'polling_canceled',
+      });
       this.pollingRequest = null;
     }
   },
