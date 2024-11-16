@@ -14,7 +14,6 @@ import {base64, patterns} from '@webex/common';
 import {merge, times} from 'lodash';
 import CryptoJS from 'crypto-js';
 import Authorization from '@webex/plugin-authorization-browser-first-party';
-import {EventEmitter} from 'events';
 
 // Necessary to require lodash this way in order to stub the method
 const lodash = require('lodash');
