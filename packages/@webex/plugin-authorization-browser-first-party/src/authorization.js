@@ -257,8 +257,7 @@ const Authorization = WebexPlugin.extend({
    * Get an OAuth Login URL for QRCode. Generate QR code based on the returned URL.
    * @instance
    * @memberof AuthorizationBrowserFirstParty
-   * @throws {Error} When the request fails
-   * @returns {Promise<{verification_uri_complete: string, verification_uri: string, user_code: string, device_code: string, interval: number, expires_in: number}>}
+   * @emits #qrcode-login
    */
   initQRCodeLogin() {
     return this.webex
@@ -281,13 +280,13 @@ const Authorization = WebexPlugin.extend({
         this.eventEmitter.emit('qrcode-login', {
           eventType: 'user-code',
           userData: {
-            user_code,
-            verification_uri,
-            verification_uri_complete,
+            userCode: user_code,
+            verificationUri: verification_uri,
+            verificationUriComplete: verification_uri_complete,
           }
         });
         // if device authorization success, then start to poll server to check whether the user has completed authorization
-        this.startQRCodePolling(res.body);
+        this._startQRCodePolling(res.body);
         return res.body;
       })
       .catch((res) => {
@@ -300,16 +299,23 @@ const Authorization = WebexPlugin.extend({
    * @instance
    * @memberof AuthorizationBrowserFirstParty
    * @param {Object} options
-   * @throws {Error} When the request fails
-   * @returns {Promise}
+   * @emits #qrcode-login
    */
-  startQRCodePolling(options = {}) {
+  _startQRCodePolling(options = {}) {
     if (!options.device_code) {
-      return Promise.reject(new Error('A deviceCode is required'));
+      this.eventEmitter.emit('qrcode-login', {
+        eventType: 'authorization_failed',
+        data: {message: 'A deviceCode is required'},
+      });
+      return;
     }
 
     if (this.pollingRequest) {
-      return Promise.reject(new Error('There is already a polling request'));
+      this.eventEmitter.emit('qrcode-login', {
+        eventType: 'authorization_failed',
+        data: {message: 'There is already a polling request'},
+      });
+      return;
     }
 
     const {device_code: deviceCode, interval = 2, expires_in: expiresIn = 300} = options;
@@ -317,65 +323,60 @@ const Authorization = WebexPlugin.extend({
     let attempts = 0;
     const maxAttempts = expiresIn / interval;
 
-    return new Promise((resolve, reject) => {
-      this.pollingRequest = setInterval(() => {
-        attempts += 1;
+    this.pollingRequest = setInterval(() => {
+      attempts += 1;
 
-        const currentAttempts = attempts;
-        this.webex
-          .request({
-            method: 'POST',
-            service: 'oauth-helper',
-            resource: '/actions/device/token',
-            form: {
-              grant_type: 'urn:ietf:params:oauth:grant-type:device_code',
-              device_code: deviceCode,
-              client_id: this.config.client_id,
-            },
-            auth: {
-              user: this.config.client_id,
-              pass: this.config.client_secret,
-              sendImmediately: true,
-            },
-          })
-          .then((res) => {
-            this.eventEmitter.emit('qrcode-login', {
-              eventType: 'authorization_success',
-              authorized: true,
-            });
-            this.cancelQRCodePolling();
-            resolve(res.body);
-          })
-          .catch((res) => {
-            if (currentAttempts >= maxAttempts) {
-              reject(new Error('Authorization timed out'));
-              this.eventEmitter.emit('qrcode-login', {
-                eventType: 'authorization_failed',
-                error: 'Authorization timed out',
-              });
-              this.cancelQRCodePolling();
-              return;
-            }
-            // if the statusCode is 428 which means that the authorization request is still pending
-            // as the end user hasn't yet completed the user-interaction steps. So keep polling.
-            if (res.statusCode === 428) {
-              this.eventEmitter.emit('qrcode-login', {
-                eventType: 'authorization_pending',
-                error: res.body
-              });
-              return;
-            }
-
-            this.cancelQRCodePolling();
-
-            reject(res);
+      const currentAttempts = attempts;
+      this.webex
+        .request({
+          method: 'POST',
+          service: 'oauth-helper',
+          resource: '/actions/device/token',
+          form: {
+            grant_type: 'urn:ietf:params:oauth:grant-type:device_code',
+            device_code: deviceCode,
+            client_id: this.config.client_id,
+          },
+          auth: {
+            user: this.config.client_id,
+            pass: this.config.client_secret,
+            sendImmediately: true,
+          },
+        })
+        .then((res) => {
+          this.eventEmitter.emit('qrcode-login', {
+            eventType: 'authorization_success',
+            data: res.body,
+          });
+          this.cancelQRCodePolling();
+        })
+        .catch((res) => {
+          if (currentAttempts >= maxAttempts) {
             this.eventEmitter.emit('qrcode-login', {
               eventType: 'authorization_failed',
-              error: res.body
+              data: {message: 'Authorization timed out'}
             });
+            this.cancelQRCodePolling();
+            return;
+          }
+          // if the statusCode is 428 which means that the authorization request is still pending
+          // as the end user hasn't yet completed the user-interaction steps. So keep polling.
+          if (res.statusCode === 428) {
+            this.eventEmitter.emit('qrcode-login', {
+              eventType: 'authorization_pending',
+              data: res.body
+            });
+            return;
+          }
+
+          this.cancelQRCodePolling();
+
+          this.eventEmitter.emit('qrcode-login', {
+            eventType: 'authorization_failed',
+            data: res.body
           });
-      }, interval * 1000);
-    });
+        });
+    }, interval * 1000);
   },
 
   /**
