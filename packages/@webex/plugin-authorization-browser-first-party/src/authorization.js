@@ -299,6 +299,7 @@ const Authorization = WebexPlugin.extend({
       .catch((res) => {
         this.eventEmitter.emit('qRCodeLogin', {
           eventType: 'getUserCodeFailure',
+          data: res.body,
         });
       });
   },
