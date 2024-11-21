@@ -354,6 +354,8 @@ const Authorization = WebexPlugin.extend({
           },
         })
         .then((res) => {
+          if (this.pollingRequest === null) return;
+
           this.eventEmitter.emit('qRCodeLogin', {
             eventType: 'authorizationSuccess',
             data: res.body,
@@ -361,6 +363,8 @@ const Authorization = WebexPlugin.extend({
           this.cancelQRCodePolling();
         })
         .catch((res) => {
+          if (this.pollingRequest === null) return;
+
           if (currentAttempts >= maxAttempts) {
             this.eventEmitter.emit('qRCodeLogin', {
               eventType: 'authorizationFailure',

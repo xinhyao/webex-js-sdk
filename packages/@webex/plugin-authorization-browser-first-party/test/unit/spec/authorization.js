@@ -607,10 +607,9 @@ describe('plugin-authorization-browser-first-party', () => {
     
         assert.calledTwice(webex.request);
         assert.calledOnce(webex.authorization.cancelQRCodePolling);
-        assert.calledThrice(emitSpy);
+        assert.calledTwice(emitSpy);
         assert.equal(emitSpy.getCall(0).args[1].eventType, 'authorizationSuccess');
         assert.equal(emitSpy.getCall(1).args[1].eventType, 'pollingCanceled');
-        assert.equal(emitSpy.getCall(2).args[1].eventType, 'authorizationPending');
         clock.restore();
       });
 
