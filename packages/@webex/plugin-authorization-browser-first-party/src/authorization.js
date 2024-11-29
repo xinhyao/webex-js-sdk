@@ -302,7 +302,7 @@ const Authorization = WebexPlugin.extend({
    * @param {String} verificationUrl
    * @returns {String}
    */
-  _generateQRCodeVerificationUrl(verificationUrl = '') {
+  _generateQRCodeVerificationUrl(verificationUrl) {
     const baseUrl = 'https://web.webex.com/deviceAuth';
     const urlParams = new URLSearchParams(new URL(verificationUrl).search);
     const userCode = urlParams.get('userCode');

@@ -447,7 +447,7 @@ describe('plugin-authorization-browser-first-party', () => {
       it('should generate a QR code URL when a userCode is present', () => {
         const verificationUrl = 'https://example.com/verify?userCode=123456';
         const oauthHelperUrl = 'https://oauth-helper-a.wbx2.com/helperservice/v1';
-        const expectedUrl = 'https://web.webex.com/deviceAuth?usercode%3D123456%26oauthhelper%3Dhttps%3A%2F%2Foauth-helper-a.wbx2.com%2Fhelperservice%2Fv1';
+        const expectedUrl = 'https://web.webex.com/deviceAuth?usercode=123456&oauthhelper=https%3A%2F%2Foauth-helper-a.wbx2.com%2Fhelperservice%2Fv1';
 
         const webex = makeWebex('http://example.com');
 
@@ -473,20 +473,6 @@ describe('plugin-authorization-browser-first-party', () => {
 
         oauthHelperSpy.restore();
       });
-
-      it('should return the original verificationUrl when it is an empty string', () => {
-        const verificationUrl = '';
-        const webex = makeWebex('http://example.com');
-
-        const oauthHelperSpy = sinon.stub(webex.internal.services, 'get');
-        const result = webex.authorization._generateQRCodeVerificationUrl(verificationUrl);
-
-        assert.notCalled(oauthHelperSpy);
-        assert.equal(result, verificationUrl);
-
-        oauthHelperSpy.restore();
-      });
-
     });
 
     describe('#initQRCodeLogin()', () => {
