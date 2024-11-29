@@ -304,14 +304,16 @@ const Authorization = WebexPlugin.extend({
    */
   _generateQRCodeVerificationUrl(verificationUrl = '') {
     const baseUrl = 'https://web.webex.com/deviceAuth';
-    const match = verificationUrl.match(/[?&]userCode=([^&]+)/);
-    const userCode = match ? match[1] : null;
+    const urlParams = new URLSearchParams(new URL(verificationUrl).search);
+    const userCode = urlParams.get('userCode');
 
     if (userCode) {
       const {services} = this.webex.internal;
       const oauthHelperUrl = services.get('oauth-helper');
-      const params = `usercode=${userCode}&oauthhelper=${oauthHelperUrl}`;
-      return `${baseUrl}?${encodeURIComponent(params)}`;
+      const newVerificationUrl = new URL(baseUrl);
+      newVerificationUrl.searchParams.set('usercode', userCode);
+      newVerificationUrl.searchParams.set('oauthhelper', oauthHelperUrl);
+      return newVerificationUrl.toString();
     } else {
       return verificationUrl;
     }
