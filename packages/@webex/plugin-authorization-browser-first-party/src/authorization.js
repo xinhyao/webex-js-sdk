@@ -296,6 +296,30 @@ const Authorization = WebexPlugin.extend({
   },
 
   /**
+   * Generate a QR code URL to launch the Webex app when scanning with the camera
+   * @instance
+   * @memberof AuthorizationBrowserFirstParty
+   * @param {String} verificationUrl
+   * @returns {String}
+   */
+  _generateQRCodeVerificationUrl(verificationUrl) {
+    const baseUrl = 'https://web.webex.com/deviceAuth';
+    const urlParams = new URLSearchParams(new URL(verificationUrl).search);
+    const userCode = urlParams.get('userCode');
+
+    if (userCode) {
+      const {services} = this.webex.internal;
+      const oauthHelperUrl = services.get('oauth-helper');
+      const newVerificationUrl = new URL(baseUrl);
+      newVerificationUrl.searchParams.set('usercode', userCode);
+      newVerificationUrl.searchParams.set('oauthhelper', oauthHelperUrl);
+      return newVerificationUrl.toString();
+    } else {
+      return verificationUrl;
+    }
+  },
+
+  /**
    * Get an OAuth Login URL for QRCode. Generate QR code based on the returned URL.
    * @instance
    * @memberof AuthorizationBrowserFirstParty
@@ -327,12 +351,13 @@ const Authorization = WebexPlugin.extend({
       })
       .then((res) => {
         const {user_code, verification_uri, verification_uri_complete} = res.body;
+        const verificationUriComplete = this._generateQRCodeVerificationUrl(verification_uri_complete);
         this.eventEmitter.emit(Events.qRCodeLogin, {
           eventType: 'getUserCodeSuccess',
           userData: {
             userCode: user_code,
             verificationUri: verification_uri,
-            verificationUriComplete: verification_uri_complete,
+            verificationUriComplete,
           },
         });
         // if device authorization success, then start to poll server to check whether the user has completed authorization

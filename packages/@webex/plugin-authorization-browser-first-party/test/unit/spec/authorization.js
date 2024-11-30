@@ -443,6 +443,38 @@ describe('plugin-authorization-browser-first-party', () => {
       });
     });
 
+    describe('#_generateQRCodeVerificationUrl()', () => {
+      it('should generate a QR code URL when a userCode is present', () => {
+        const verificationUrl = 'https://example.com/verify?userCode=123456';
+        const oauthHelperUrl = 'https://oauth-helper-a.wbx2.com/helperservice/v1';
+        const expectedUrl = 'https://web.webex.com/deviceAuth?usercode=123456&oauthhelper=https%3A%2F%2Foauth-helper-a.wbx2.com%2Fhelperservice%2Fv1';
+
+        const webex = makeWebex('http://example.com');
+
+        const oauthHelperSpy = sinon.stub(webex.internal.services, 'get').returns(oauthHelperUrl);
+        const result = webex.authorization._generateQRCodeVerificationUrl(verificationUrl);
+
+        assert.calledOnce(oauthHelperSpy);
+        assert.calledWithExactly(oauthHelperSpy, 'oauth-helper');
+        assert.equal(result, expectedUrl);
+
+        oauthHelperSpy.restore();
+      });
+
+      it('should return the original verificationUrl when userCode is not present', () => {
+        const verificationUrl = 'https://example.com/verify';
+        const webex = makeWebex('http://example.com');
+
+        const oauthHelperSpy = sinon.stub(webex.internal.services, 'get');
+        const result = webex.authorization._generateQRCodeVerificationUrl(verificationUrl);
+
+        assert.notCalled(oauthHelperSpy);
+        assert.equal(result, verificationUrl);
+
+        oauthHelperSpy.restore();
+      });
+    });
+
     describe('#initQRCodeLogin()', () => {
       it('should prevent concurrent request if there is already a polling request', async () => {
         const webex = makeWebex('http://example.com');
@@ -477,6 +509,7 @@ describe('plugin-authorization-browser-first-party', () => {
         });
         webex.request.onFirstCall().resolves({statusCode: 200, body: sampleData});
         sinon.spy(webex.authorization, '_startQRCodePolling');
+        sinon.spy(webex.authorization, '_generateQRCodeVerificationUrl');
         const emitSpy = sinon.spy(webex.authorization.eventEmitter, 'emit');
 
         webex.authorization.initQRCodeLogin();
@@ -485,6 +518,7 @@ describe('plugin-authorization-browser-first-party', () => {
 
         assert.calledTwice(webex.request);
         assert.calledOnce(webex.authorization._startQRCodePolling);
+        assert.calledOnce(webex.authorization._generateQRCodeVerificationUrl);
         assert.equal(emitSpy.getCall(0).args[1].eventType, 'getUserCodeSuccess');
 
         const request = webex.request.getCall(0);
