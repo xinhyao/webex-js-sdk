@@ -348,6 +348,18 @@ export enum TASK_EVENTS {
   TASK_REJECT = 'task:rejected',
 
   /**
+   * Triggered when an outdial call fails
+   * @example
+   * ```typescript
+   * task.on(TASK_EVENTS.TASK_OUTDIAL_FAILED, (reason: string) => {
+   *   console.log('Outdial failed:', reason);
+   *   // Handle outdial failure
+   * });
+   * ```
+   */
+  TASK_OUTDIAL_FAILED = 'task:outdialFailed',
+
+  /**
    * Triggered when a task is populated with data
    * @example
    * ```typescript
@@ -370,6 +382,22 @@ export enum TASK_EVENTS {
    * ```
    */
   TASK_OFFER_CONTACT = 'task:offerContact',
+
+  /**
+   * Triggered when a task has been successfully auto-answered
+   * This event is emitted after the SDK automatically accepts a task due to:
+   * - WebRTC calls with auto-answer enabled
+   * - Agent-initiated outdial calls
+   * - Other auto-answer scenarios
+   * @example
+   * ```typescript
+   * task.on(TASK_EVENTS.TASK_AUTO_ANSWERED, (task: ITask) => {
+   *   console.log('Task auto-answered:', task.data.interactionId);
+   *   // Update UI - enable cancel button, etc.
+   * });
+   * ```
+   */
+  TASK_AUTO_ANSWERED = 'task:autoAnswered',
 
   /**
    * Triggered when a conference is being established
@@ -490,6 +518,30 @@ export enum TASK_EVENTS {
    * ```
    */
   TASK_PARTICIPANT_LEFT_FAILED = 'task:participantLeftFailed',
+
+  /**
+   * Triggered when a contact is merged
+   * @example
+   * ```typescript
+   * task.on(TASK_EVENTS.TASK_MERGED, (task: ITask) => {
+   *   console.log('Contact merged:', task.data.interactionId);
+   *   // Handle contact merge
+   * });
+   * ```
+   */
+  TASK_MERGED = 'task:merged',
+
+  /**
+   * Triggered when a participant enters post-call activity state
+   * @example
+   * ```typescript
+   * task.on(TASK_EVENTS.TASK_POST_CALL_ACTIVITY, (task: ITask) => {
+   *   console.log('Participant in post-call activity:', task.data.interactionId);
+   *   // Handle post-call activity
+   * });
+   * ```
+   */
+  TASK_POST_CALL_ACTIVITY = 'task:postCallActivity',
 }
 
 /**
@@ -636,6 +688,8 @@ export type Interaction = {
     BLIND_TRANSFER_IN_PROGRESS?: boolean;
     /** Desktop view configuration for Flow Control */
     fcDesktopView?: string;
+    /** Agent ID who initiated the outdial call */
+    outdialAgentId?: string;
   };
   /** Main interaction identifier for related interactions */
   mainInteractionId?: string;
@@ -757,8 +811,14 @@ export type TaskData = {
   isWebCallMute?: boolean;
   /** Identifier for reservation interaction */
   reservationInteractionId?: string;
+  /** Identifier for the reserved agent channel (used for campaign tasks) */
+  reservedAgentChannelId?: string;
   /** Indicates if wrap-up is required for this task */
   wrapUpRequired?: boolean;
+  /** Indicates if auto-answer is in progress for this task */
+  isAutoAnswering?: boolean;
+  /** Indicates if wrap-up is required for this task */
+  agentsPendingWrapUp?: string[];
 };
 
 /**
@@ -1003,19 +1063,6 @@ export type ConsultConferenceData = {
   to: string | undefined;
   /** Type of destination (e.g., 'agent', 'queue') */
   destinationType: string;
-};
-
-/**
- * Legacy consultation conference data type matching Agent Desktop
- * @public
- */
-export type consultConferencePayloadData = {
-  /** Identifier of the agent initiating consult/conference */
-  agentId: string;
-  /** Type of destination (e.g., 'agent', 'queue') */
-  destinationType: string;
-  /** Identifier of the destination agent */
-  destAgentId: string;
 };
 
 /**

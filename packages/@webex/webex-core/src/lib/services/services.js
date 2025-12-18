@@ -55,11 +55,28 @@ const Services = WebexPlugin.extend({
     initFailed: ['boolean', false, false],
   },
 
+  session: {
+    /**
+     * Becomes `true` once service catalog initialization has completed.
+     * Blocks `webex.ready` until services are initialized.
+     * @instance
+     * @memberof Services
+     * @type {boolean}
+     */
+    ready: {
+      default: false,
+      type: 'boolean',
+    },
+  },
+
   _catalogs: new WeakMap(),
 
   _serviceUrls: null,
 
   _hostCatalog: null,
+
+  // Map of active cluster ids per service, e.g. { wdm: 'urn:TEAM:ap-southeast-2_m:wdm' }
+  _activeServices: {},
 
   /**
    * Get the registry associated with this webex instance.
@@ -158,6 +175,49 @@ const Services = WebexPlugin.extend({
     const catalog = this._getCatalog();
 
     return catalog.markFailedUrl(url, noPriorityHosts);
+  },
+
+  /**
+   * Get all Mobius cluster host entries from the legacy host catalog.
+   * @returns {Array<Object>}
+   */
+  getMobiusClusters() {
+    const clusters = [];
+    const hostCatalog = this._hostCatalog || {};
+
+    Object.entries(hostCatalog).forEach(([host, entries]) => {
+      (entries || []).forEach((entry) => {
+        if (typeof entry?.id === 'string' && entry.id.endsWith(':mobius')) {
+          // Ensure host is included; prefer entry.host if present, else use the map key
+          const withHost = entry.host ? entry.host : host;
+          // Skip duplicates for the same host
+          if (!clusters.find((c) => c && c.host === withHost)) {
+            clusters.push({...entry, host: withHost});
+          }
+        }
+      });
+    });
+
+    return clusters;
+  },
+
+  /**
+   * Check is valid host from the legacy host catalog.
+   * @param {string} host
+   * @returns {Boolean}
+   */
+  isValidHost(host) {
+    const hostCatalog = this._hostCatalog || {};
+
+    return !!hostCatalog[host]?.length;
+  },
+  /**
+   * Merge provided active cluster mappings into current state.
+   * @param {Record<string,string>} activeServices
+   * @returns {void}
+   */
+  _updateActiveServices(activeServices) {
+    this._activeServices = {...this._activeServices, ...activeServices};
   },
 
   /**
@@ -473,10 +533,14 @@ const Services = WebexPlugin.extend({
             ({countryCode, timezone} = clientRegionInfo);
           }
 
-          // Send the user activation request to the **License** service.
+          // Send the user activation request.
+          // Use user-onboarding service if configured, otherwise use license service.
+          const useUserOnboarding =
+            this.webex.config.services?.useUserOnboardingServiceForActivations;
+
           return this.request({
-            service: 'license',
-            resource: 'users/activations',
+            service: useUserOnboarding ? 'user-onboarding' : 'license',
+            resource: useUserOnboarding ? 'api/v1/users/activations' : 'users/activations',
             method: 'POST',
             headers: {
               accept: 'application/json',
@@ -1071,9 +1135,10 @@ const Services = WebexPlugin.extend({
       this.initConfig();
     });
 
-    // wait for webex instance to be ready before attempting
-    // to update the service catalogs
-    this.listenToOnce(this.webex, 'ready', () => {
+    // Wait for storage to be loaded before attempting to update the service catalogs.
+    // We listen for 'loaded' instead of 'ready' because services.ready is a dependency
+    // of webex.ready - listening to 'ready' would cause a deadlock.
+    this.listenToOnce(this.webex, 'loaded', () => {
       const {supertoken} = this.webex.credentials;
       // Validate if the supertoken exists.
       if (supertoken && supertoken.access_token) {
@@ -1086,16 +1151,25 @@ const Services = WebexPlugin.extend({
             this.logger.error(
               `services: failed to init initial services when credentials available, ${error?.message}`
             );
+          })
+          .finally(() => {
+            this.ready = true;
+            this.trigger('services:initialized');
           });
       } else {
         const {email} = this.webex.config;
 
-        this.collectPreauthCatalog(email ? {email} : undefined).catch((error) => {
-          this.initFailed = true;
-          this.logger.error(
-            `services: failed to init initial services when no credentials available, ${error?.message}`
-          );
-        });
+        this.collectPreauthCatalog(email ? {email} : undefined)
+          .catch((error) => {
+            this.initFailed = true;
+            this.logger.error(
+              `services: failed to init initial services when no credentials available, ${error?.message}`
+            );
+          })
+          .finally(() => {
+            this.ready = true;
+            this.trigger('services:initialized');
+          });
       }
     });
   },
