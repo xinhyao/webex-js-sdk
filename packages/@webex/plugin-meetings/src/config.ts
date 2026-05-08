@@ -82,12 +82,14 @@ export default {
     enableExtmap: false,
     enableAutomaticLLM: false,
     installedOrgID: undefined,
+    multipartSitePrefixList: ['.my.', '.mydmz.', '.mybts.', '.mydev.', '.myats2.', '.myats.'],
     experimental: {
       enableMediaNegotiatedEvent: false,
       enableUnifiedMeetings: true,
       enableAdhocMeetings: true,
       enableTcpReachability: false,
       enableTlsReachability: false,
+      storeLocusHashTreeEventsForDebugging: false,
     },
     degradationPreferences: {
       maxMacroblocksLimit: 8192,

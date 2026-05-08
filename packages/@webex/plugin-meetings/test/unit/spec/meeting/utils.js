@@ -54,11 +54,13 @@ describe('plugin-meetings', () => {
       meeting.unsetPeerConnections = sinon.stub();
       meeting.reconnectionManager = {cleanUp: sinon.stub()};
       meeting.stopKeepAlive = sinon.stub();
-      meeting.updateLLMConnection = sinon.stub();
+      meeting.cleanupLLMConneciton = sinon.stub().resolves();
       meeting.breakouts = {cleanUp: sinon.stub()};
+      meeting.webinar = {cleanUp: sinon.stub()};
       meeting.annotaion = {cleanUp: sinon.stub()};
       meeting.getWebexObject = sinon.stub().returns(webex);
       meeting.simultaneousInterpretation = {cleanUp: sinon.stub()};
+      meeting.locusInfo = {cleanUp: sinon.stub()};
       meeting.trigger = sinon.stub();
       meeting.webex = webex;
       meeting.webex.internal.newMetrics.callDiagnosticMetrics =
@@ -85,9 +87,10 @@ describe('plugin-meetings', () => {
         assert.calledOnce(meeting.unsetPeerConnections);
         assert.calledOnce(meeting.reconnectionManager.cleanUp);
         assert.calledOnce(meeting.stopKeepAlive);
-        assert.calledOnce(meeting.updateLLMConnection);
+        assert.calledOnceWithExactly(meeting.cleanupLLMConneciton, {throwOnError: false});
         assert.calledOnce(meeting.breakouts.cleanUp);
         assert.calledOnce(meeting.simultaneousInterpretation.cleanUp);
+        assert.calledOnce(meeting.locusInfo.cleanUp);
         assert.calledOnce(webex.internal.device.meetingEnded);
         assert.calledOnceWithExactly(
           meeting.webex.internal.newMetrics.callDiagnosticMetrics.clearEventLimitsForCorrelationId,
@@ -106,9 +109,10 @@ describe('plugin-meetings', () => {
         assert.calledOnce(meeting.unsetPeerConnections);
         assert.calledOnce(meeting.reconnectionManager.cleanUp);
         assert.calledOnce(meeting.stopKeepAlive);
-        assert.notCalled(meeting.updateLLMConnection);
+        assert.notCalled(meeting.cleanupLLMConneciton);
         assert.calledOnce(meeting.breakouts.cleanUp);
         assert.calledOnce(meeting.simultaneousInterpretation.cleanUp);
+        assert.calledOnce(meeting.locusInfo.cleanUp);
         assert.calledOnce(webex.internal.device.meetingEnded);
         assert.calledOnceWithExactly(
           meeting.webex.internal.newMetrics.callDiagnosticMetrics.clearEventLimitsForCorrelationId,
@@ -126,9 +130,10 @@ describe('plugin-meetings', () => {
         assert.calledOnce(meeting.unsetPeerConnections);
         assert.calledOnce(meeting.reconnectionManager.cleanUp);
         assert.calledOnce(meeting.stopKeepAlive);
-        assert.notCalled(meeting.updateLLMConnection);
+        assert.notCalled(meeting.cleanupLLMConneciton);
         assert.calledOnce(meeting.breakouts.cleanUp);
         assert.calledOnce(meeting.simultaneousInterpretation.cleanUp);
+        assert.calledOnce(meeting.locusInfo.cleanUp);
         assert.calledOnce(webex.internal.device.meetingEnded);
         assert.calledOnceWithExactly(
           meeting.webex.internal.newMetrics.callDiagnosticMetrics.clearEventLimitsForCorrelationId,
@@ -269,6 +274,31 @@ describe('plugin-meetings', () => {
 
         assert.deepEqual(response, originalResponse);
         assert.notCalled(meeting.locusInfo.handleLocusAPIResponse);
+      });
+
+      it('should call handleLocusAPIResponse when response body is an unwrapped LocusDTO', () => {
+        const meeting = {
+          locusInfo: {
+            handleLocusAPIResponse: sinon.stub(),
+          },
+        };
+
+        const originalResponse = {
+          body: {
+            url: 'https://locus-a.wbx2.com/locus/api/v1/loci/some-id',
+            participants: [],
+            self: {},
+          },
+        };
+
+        const response = MeetingUtil.updateLocusFromApiResponse(meeting, originalResponse);
+
+        assert.deepEqual(response, originalResponse);
+        assert.calledOnceWithExactly(
+          meeting.locusInfo.handleLocusAPIResponse,
+          meeting,
+          originalResponse.body
+        );
       });
 
       it('should work with an undefined meeting', () => {
@@ -1011,6 +1041,30 @@ describe('plugin-meetings', () => {
       });
     });
 
+    describe('attendeeRequestAiAssistantDeclinedAll', () => {
+      it('returns true when display hint is present', () => {
+        assert.isTrue(
+          MeetingUtil.attendeeRequestAiAssistantDeclinedAll([
+            'ATTENDEE_REQUEST_AI_ASSISTANT_DECLINED_ALL',
+          ])
+        );
+      });
+
+      it('returns false when display hint is not present', () => {
+        assert.isFalse(MeetingUtil.attendeeRequestAiAssistantDeclinedAll([]));
+      });
+
+      it('returns false when display hint is absent among other hints', () => {
+        assert.isFalse(
+          MeetingUtil.attendeeRequestAiAssistantDeclinedAll(['SOME_OTHER_HINT', 'ANOTHER_HINT'])
+        );
+      });
+
+      it('returns false when called with no arguments', () => {
+        assert.isFalse(MeetingUtil.attendeeRequestAiAssistantDeclinedAll());
+      });
+    });
+
     describe('bothLeaveAndEndMeetingAvailable', () => {
       it('works as expected', () => {
         assert.deepEqual(
@@ -1026,6 +1080,46 @@ describe('plugin-meetings', () => {
           true
         );
         assert.deepEqual(MeetingUtil.bothLeaveAndEndMeetingAvailable([]), false);
+      });
+    });
+
+    describe('requireHostEndMeetingBeforeLeave', () => {
+      it('works as expected', () => {
+        assert.deepEqual(
+          MeetingUtil.requireHostEndMeetingBeforeLeave(['REQUIRE_HOST_END_MEETING_BEFORE_LEAVE']),
+          true
+        );
+        assert.deepEqual(
+          MeetingUtil.requireHostEndMeetingBeforeLeave([
+            'LEAVE_TRANSFER_HOST_END_MEETING',
+            'END_MEETING',
+          ]),
+          false
+        );
+        assert.deepEqual(
+          MeetingUtil.requireHostEndMeetingBeforeLeave([
+            'REQUIRE_HOST_END_MEETING_BEFORE_LEAVE',
+            'END_MEETING',
+          ]),
+          true
+        );
+        assert.deepEqual(
+          MeetingUtil.requireHostEndMeetingBeforeLeave([
+            'REQUIRE_HOST_END_MEETING_BEFORE_LEAVE',
+            'LEAVE_MEETING',
+          ]),
+          true
+        );
+        assert.deepEqual(
+          MeetingUtil.requireHostEndMeetingBeforeLeave([
+            'REQUIRE_HOST_END_MEETING_BEFORE_LEAVE',
+            'LEAVE_MEETING',
+            'END_MEETING',
+          ]),
+          true
+        );
+        assert.deepEqual(MeetingUtil.requireHostEndMeetingBeforeLeave(['END_MEETING']), true);
+        assert.deepEqual(MeetingUtil.requireHostEndMeetingBeforeLeave([]), false);
       });
     });
 
@@ -1081,6 +1175,10 @@ describe('plugin-meetings', () => {
       {functionName: 'canSelectSpokenLanguages', displayHint: 'DISPLAY_NON_ENGLISH_ASR'},
       {functionName: 'waitingForOthersToJoin', displayHint: 'WAITING_FOR_OTHERS'},
       {functionName: 'showAutoEndMeetingWarning', displayHint: 'SHOW_AUTO_END_MEETING_WARNING'},
+      {
+        functionName: 'isAnonymizeDisplayNamesEnabled',
+        displayHint: 'ANONYMOUS_DISPLAY_NAMES_ENABLED',
+      },
     ].forEach(({functionName, displayHint}) => {
       describe(functionName, () => {
         it('works as expected', () => {
