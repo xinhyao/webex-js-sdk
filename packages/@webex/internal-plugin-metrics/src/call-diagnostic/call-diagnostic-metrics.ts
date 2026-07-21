@@ -108,6 +108,8 @@ export default class CallDiagnosticMetrics extends StatelessWebexPlugin {
   private isMercuryConnected = false;
   private eventLimitTracker: Map<string, number> = new Map();
   private eventLimitWarningsLogged: Set<string> = new Set();
+  private isTelemetryOptOutManual = false;
+  private isTelemetryOptOutAutomatic = false;
 
   // the default validator before piping an event to the batcher
   // this function can be overridden by the user
@@ -143,6 +145,58 @@ export default class CallDiagnosticMetrics extends StatelessWebexPlugin {
     }
 
     return null;
+  }
+
+  /**
+   * Returns the user activation state reported from the browser's navigator.userActivation API
+   * @returns object with hasBeenActive and isActive booleans, or undefined if unavailable
+   */
+  getUserActivation(): {hasBeenActive: boolean; isActive: boolean} | undefined {
+    const userActivation =
+      typeof navigator !== 'undefined'
+        ? (navigator as {userActivation?: {hasBeenActive: boolean; isActive: boolean}})
+            .userActivation
+        : undefined;
+
+    if (userActivation) {
+      return {
+        hasBeenActive: userActivation.hasBeenActive,
+        isActive: userActivation.isActive,
+      };
+    }
+
+    return undefined;
+  }
+
+  /**
+   * Returns the telemetryOptOut value of the current user
+   * @returns one of 'manual', 'automatic', undefined
+   */
+  public getTelemetryOptOut() {
+    if (this.isTelemetryOptOutManual) {
+      return 'manual';
+    }
+    if (this.isTelemetryOptOutAutomatic) {
+      return 'automatic';
+    }
+
+    return undefined;
+  }
+
+  /**
+   * Sets the manual telemetry opt-out status for the current user
+   * @param value - boolean value indicating manual telemetry opt-out status
+   */
+  public setIsTelemetryOptOutManual(value: boolean) {
+    this.isTelemetryOptOutManual = value;
+  }
+
+  /**
+   * Sets the automatic telemetry opt-out status for the current user
+   * @param value - boolean value indicating automatic telemetry opt-out status
+   */
+  public setIsTelemetryOptOutAutomatic(value: boolean) {
+    this.isTelemetryOptOutAutomatic = value;
   }
 
   /**
@@ -607,6 +661,7 @@ export default class CallDiagnosticMetrics extends StatelessWebexPlugin {
           mediaEngineSoftwareVersion: getOSVersion() || 'unknown',
           startTime: new Date().toISOString(),
         },
+        webexSubServiceType: this.getSubServiceType(meeting),
       };
 
       // merge any new properties, or override existing ones
@@ -989,7 +1044,7 @@ export default class CallDiagnosticMetrics extends StatelessWebexPlugin {
       sessionCorrelationId,
     });
 
-    // create common event object structur
+    // create common event object structure
     const commonEventObject = {
       name,
       canProceed: true,
@@ -1002,6 +1057,7 @@ export default class CallDiagnosticMetrics extends StatelessWebexPlugin {
         'loginType' in meeting.callStateForMetrics
           ? meeting.callStateForMetrics.loginType
           : this.getCurLoginType(),
+      telemetryOptOut: this.getTelemetryOptOut(),
       isConvergedArchitectureEnabled: this.getIsConvergedArchitectureEnabled({
         meetingId,
       }),
@@ -1011,6 +1067,9 @@ export default class CallDiagnosticMetrics extends StatelessWebexPlugin {
       // @ts-ignore
       webClientPreload: this.webex.meetings?.config?.metrics?.webClientPreload,
       isVipMeeting: meeting?.meetingInfo?.vipmeeting || false,
+      isAutomatedUser:
+        typeof window !== 'undefined' && typeof navigator !== 'undefined' && !!navigator?.webdriver, // if webdriver is true, it's most likely in a test environment
+      userActivation: this.getUserActivation(),
     };
 
     const joinFlowVersion = options.joinFlowVersion ?? meeting.callStateForMetrics?.joinFlowVersion;
@@ -1130,8 +1189,12 @@ export default class CallDiagnosticMetrics extends StatelessWebexPlugin {
         isMercuryConnected: this.isMercuryConnected,
       },
       loginType: this.getCurLoginType(),
+      telemetryOptOut: this.getTelemetryOptOut(),
       // @ts-ignore
       webClientPreload: this.webex.meetings?.config?.metrics?.webClientPreload,
+      isAutomatedUser:
+        typeof window !== 'undefined' && typeof navigator !== 'undefined' && !!navigator?.webdriver, // if webdriver is true, it's most likely in a test environment
+      userActivation: this.getUserActivation(),
     };
 
     if (options.joinFlowVersion) {
@@ -1341,6 +1404,7 @@ export default class CallDiagnosticMetrics extends StatelessWebexPlugin {
       eventPayload: event,
       type: ['diagnostic-event'],
     };
+
     this.preLoginMetricsBatcher.savePreLoginId(preLoginId);
 
     return this.preLoginMetricsBatcher.request(finalEvent);

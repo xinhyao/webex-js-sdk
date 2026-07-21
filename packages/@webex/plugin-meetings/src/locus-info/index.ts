@@ -518,7 +518,7 @@ export default class LocusInfo extends EventsScope {
     this.updateControls(locus.controls, locus.self);
     this.updateLocusUrl(locus.url, ControlsUtils.isMainSessionDTO(locus));
     this.updateFullState(locus.fullState);
-    this.updateMeetingInfo(locus.info);
+    this.updateMeetingInfo(locus.info, locus.self);
     this.updateEmbeddedApps(locus.embeddedApps);
     // self and participants generate sipUrl for 1:1 meeting
     this.updateSelf(locus.self);
@@ -930,14 +930,22 @@ export default class LocusInfo extends EventsScope {
         if (!object.data) {
           // self without data is handled inside HashTreeParser and results in LocusInfoUpdateType.MEETING_ENDED, so we should never get here
           // all other types info, fullstate, etc - Locus should never send them without data
-          LoggerProxy.logger.warn(
-            `Locus-info:index#updateLocusFromHashTreeObject --> received ${type} object without data, this is not expected! version=${object.htMeta.elementId.version}`
+          // but we end up with this method being called without the data for them when the main dataset is removed from visible datasets list
+          LoggerProxy.logger.info(
+            `Locus-info:index#updateLocusFromHashTreeObject --> received ${type} object without data, version=${object.htMeta.elementId.version}`
           );
         } else {
           LoggerProxy.logger.info(
             `Locus-info:index#updateLocusFromHashTreeObject --> ${type} object updated to version ${object.htMeta.elementId.version}`
           );
-          const locusDtoKey = ObjectTypeToLocusKeyMap[type];
+
+          if (type === ObjectType.self) {
+            LoggerProxy.logger.info(
+              `Locus-info:index#updateLocusFromHashTreeObject --> self data: removed=${object.data.removed} state=${object.data.state} reason=${object.data.reason}`
+            );
+          }
+
+          const locusDtoKey = ObjectTypeToLocusKeyMap[type] as keyof LocusDTO;
           locus[locusDtoKey] = object.data;
 
           /* Hash tree based webinar attendees don't receive a Participant object for themselves from Locus,
@@ -2483,9 +2491,19 @@ export default class LocusInfo extends EventsScope {
    */
   updateMeetingInfo(info: object, self?: object) {
     const roles = self ? SelfUtils.getRoles(self) : this.parsedLocus.self?.roles || [];
-    if ((info && !isEqual(this.info, info)) || (!isEqual(this.roles, roles) && info)) {
-      const isJoined = SelfUtils.isJoined(self || this.parsedLocus.self);
-      const parsedInfo = InfoUtils.getInfos(this.parsedLocus.info, info, roles, isJoined);
+    const isJoined = SelfUtils.isJoined(self || this.parsedLocus.self);
+
+    // The parsed userDisplayHints depend on info, roles and isJoined, so we must recompute
+    // whenever any of them changes. A common case is self transitioning to JOINED via a delta
+    // that doesn't carry an info section - in that case we fall back to the previously stored
+    // info so the hints get reparsed with the new joined state (e.g. VIEW_THE_PARTICIPANT_LIST).
+    const infoToParse = info || this.info;
+    const infoChanged = info && !isEqual(this.info, info);
+    const rolesChanged = !isEqual(this.roles, roles);
+    const isJoinedChanged = SelfUtils.isJoined(this.parsedLocus.self) !== isJoined;
+
+    if (infoToParse && (infoChanged || rolesChanged || isJoinedChanged)) {
+      const parsedInfo = InfoUtils.getInfos(this.parsedLocus.info, infoToParse, roles, isJoined);
 
       if (parsedInfo.updates.isLocked) {
         this.emitScoped(
@@ -2508,7 +2526,7 @@ export default class LocusInfo extends EventsScope {
         );
       }
 
-      this.info = info;
+      this.info = infoToParse;
       this.parsedLocus.info = parsedInfo.current;
       // Parses the info and adds necessary values
       this.updateMeeting(parsedInfo.current);

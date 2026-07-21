@@ -2846,6 +2846,10 @@ describe('plugin-meetings', () => {
 
         let expectedMeeting;
 
+        // simulate that updateSelf has been called previously (as happens in production)
+        // so that parsedLocus.self reflects the joined state
+        locusInfo.parsedLocus.self = {state: 'JOINED'};
+
         /*
         When the event is triggered, it is required that the meeting has already
         been updated. This is why the meeting is being checked within the stubbed event emitter
@@ -2856,6 +2860,7 @@ describe('plugin-meetings', () => {
 
         // set the info initially as locusInfo.info starts as undefined
         expectedMeeting = {
+          attendee: {},
           coHost: {
             LOWER_SOMEONE_ELSES_HAND: true,
           },
@@ -2864,10 +2869,12 @@ describe('plugin-meetings', () => {
           moderator: {
             LOWER_SOMEONE_ELSES_HAND: true,
           },
+          panelist: {},
           policy: {
             LOCK_STATUS_UNLOCKED: true,
             ROSTER_IN_MEETING: true,
           },
+          presenter: {},
           userDisplayHints: ['ROSTER_IN_MEETING', 'LOCK_STATUS_UNLOCKED'],
         };
         locusInfo.updateMeetingInfo(initialInfo, self);
@@ -2882,6 +2889,7 @@ describe('plugin-meetings', () => {
 
         // Updating with different info should trigger the event
         expectedMeeting = {
+          attendee: {},
           coHost: {
             LOWER_SOMEONE_ELSES_HAND: true,
             LOCK_CONTROL_LOCK: true,
@@ -2891,10 +2899,12 @@ describe('plugin-meetings', () => {
           moderator: {
             LOWER_SOMEONE_ELSES_HAND: true,
           },
+          panelist: {},
           policy: {
             LOCK_STATUS_UNLOCKED: true,
             ROSTER_IN_MEETING: true,
           },
+          presenter: {},
           userDisplayHints: ['ROSTER_IN_MEETING', 'LOCK_STATUS_UNLOCKED'],
         };
         locusInfo.updateMeetingInfo(newInfo, self);
@@ -2903,6 +2913,7 @@ describe('plugin-meetings', () => {
 
         // update it with the same info
         expectedMeeting = {
+          attendee: {},
           coHost: {
             LOWER_SOMEONE_ELSES_HAND: true,
             LOCK_CONTROL_LOCK: true,
@@ -2912,10 +2923,12 @@ describe('plugin-meetings', () => {
           moderator: {
             LOWER_SOMEONE_ELSES_HAND: true,
           },
+          panelist: {},
           policy: {
             LOCK_STATUS_UNLOCKED: true,
             ROSTER_IN_MEETING: true,
           },
+          presenter: {},
           userDisplayHints: ['ROSTER_IN_MEETING', 'LOCK_STATUS_UNLOCKED'],
         };
         locusInfo.updateMeetingInfo(newInfo, self);
@@ -2930,6 +2943,7 @@ describe('plugin-meetings', () => {
           hasRole: true,
         });
         expectedMeeting = {
+          attendee: {},
           coHost: {
             LOWER_SOMEONE_ELSES_HAND: true,
             LOCK_CONTROL_LOCK: true,
@@ -2939,10 +2953,12 @@ describe('plugin-meetings', () => {
           moderator: {
             LOWER_SOMEONE_ELSES_HAND: true,
           },
+          panelist: {},
           policy: {
             LOCK_STATUS_UNLOCKED: true,
             ROSTER_IN_MEETING: true,
           },
+          presenter: {},
           userDisplayHints: [
             'ROSTER_IN_MEETING',
             'LOCK_STATUS_UNLOCKED',
@@ -2984,6 +3000,46 @@ describe('plugin-meetings', () => {
 
         // since self is not passed to updateMeetingInfo, MEETING_INFO_UPDATED should be triggered with isIntializing: true
         checkMeetingInfoUpdatedCalledForRoles(true, {isInitializing: true});
+      });
+
+      // joined-section hints (like ROSTER_IN_MEETING) are filtered out while not joined, so they
+      // are a good proxy for verifying that userDisplayHints get recomputed on a join transition
+      [
+        {
+          name: 'the JOINED delta carries the info section',
+          getSecondInfo: (info) => info,
+        },
+        {
+          name: 'the JOINED delta omits the info section (falls back to stored info)',
+          getSecondInfo: () => undefined,
+        },
+      ].forEach(({name, getSecondInfo}) => {
+        it(`recomputes userDisplayHints when self transitions to JOINED with unchanged roles and ${name}`, () => {
+          const info = cloneDeep(meetingInfo); // joined: ['ROSTER_IN_MEETING', 'LOCK_STATUS_UNLOCKED']
+
+          const notJoinedSelf = cloneDeep(self);
+          notJoinedSelf.state = 'IDLE';
+          notJoinedSelf.controls.role.roles = [];
+
+          const joinedSelf = cloneDeep(self);
+          joinedSelf.state = 'JOINED';
+          joinedSelf.controls.role.roles = [];
+
+          sinon.stub(locusInfo, 'emitScoped');
+
+          // first update while not joined: joined-section hints are filtered out
+          locusInfo.updateMeetingInfo(info, notJoinedSelf);
+          assert.notInclude(locusInfo.parsedLocus.info.userDisplayHints, 'ROSTER_IN_MEETING');
+          assert.notInclude(locusInfo.parsedLocus.info.userDisplayHints, 'LOCK_STATUS_UNLOCKED');
+
+          // self transitions to JOINED - info and roles are unchanged
+          locusInfo.updateMeetingInfo(getSecondInfo(info), joinedSelf);
+
+          // the hints must be recomputed with the new joined state
+          assert.include(locusInfo.parsedLocus.info.userDisplayHints, 'ROSTER_IN_MEETING');
+          assert.include(locusInfo.parsedLocus.info.userDisplayHints, 'LOCK_STATUS_UNLOCKED');
+          checkMeetingInfoUpdatedCalled(true, {isInitializing: false});
+        });
       });
     });
 
